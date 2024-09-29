@@ -76,6 +76,39 @@ function isComment(document: vscode.TextDocument, position: vscode.Position): bo
     return line.trim().startsWith('//') || line.trim().startsWith('/*') || line.trim().startsWith('*');
 }
 
+interface ClaudeAPIResponse {
+    id: string;
+    type: string;
+    role: string;
+    content: Array<{type: string; text: string}>;
+    model: string;
+    stop_reason: string | null;
+    stop_sequence: string | null;
+    usage: {
+        input_tokens: number;
+        output_tokens: number;
+    };
+}
+
+function isValidClaudeAPIResponse(data: unknown): data is ClaudeAPIResponse {
+    return (
+        typeof data === 'object' &&
+        data !== null &&
+        'id' in data &&
+        'type' in data &&
+        'role' in data &&
+        'content' in data &&
+        Array.isArray((data as any).content) &&
+        'model' in data &&
+        'stop_reason' in data &&
+        'stop_sequence' in data &&
+        'usage' in data &&
+        typeof (data as any).usage === 'object' &&
+        'input_tokens' in (data as any).usage &&
+        'output_tokens' in (data as any).usage
+    );
+}
+
 async function translateUsingClaudeAPI(text: string): Promise<string> {
     const apiKey = getApiKey();
 
@@ -92,8 +125,8 @@ async function translateUsingClaudeAPI(text: string): Promise<string> {
                 "anthropic-version": "2023-06-01"
             },
             body: JSON.stringify({
-                model: "claude-3-sonnet-20240229",
-                max_tokens: 1000,
+                model: "claude-3-5-sonnet-20240620",
+                max_tokens: 8192,
                 messages: [
                     { role: "user", content: `Translate the following text to Japanese: ${text}` }
                 ]
@@ -104,8 +137,12 @@ async function translateUsingClaudeAPI(text: string): Promise<string> {
             throw new Error(`API request failed with status ${response.status}`);
         }
 
-        const data = await response.json();
-        return data.content[0].text;
+        const rawData: unknown = await response.json();
+        if (!isValidClaudeAPIResponse(rawData)) {
+            throw new Error("Invalid response data from Claude API");
+        }
+
+        return rawData.content[0].text;
     } catch (error) {
         console.error("Error calling Claude API:", error);
         throw new Error("Failed to translate using Claude API");
@@ -140,8 +177,12 @@ async function sendMessageToClaude(text: string): Promise<string> {
             throw new Error(`API request failed with status ${response.status}`);
         }
 
-        const data = await response.json();
-        const assistantResponse = data.content[0].text;
+        const rawData: unknown = await response.json();
+        if (!isValidClaudeAPIResponse(rawData)) {
+            throw new Error("Invalid response data from Claude API");
+        }
+
+        const assistantResponse = rawData.content[0].text;
 
         conversationHistory.push({ role: "assistant", content: assistantResponse });
 
@@ -221,3 +262,4 @@ function getWebviewContent() {
 }
 
 export function deactivate() {}
+export { isComment, translateUsingClaudeAPI, sendMessageToClaude };
