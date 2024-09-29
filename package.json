@@ -1,8 +1,8 @@
 {
   "name": "comment-translate-claude",
-  "displayName": "",
-  "description": "Translate comments using Claude API",
-  "version": "0.0.1",
+  "displayName": "Comment Translate & Chat with Claude",
+  "description": "Translate comments and chat using Claude API",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -12,16 +12,22 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
-      "configuration": {
-          "title": "Hover Translate Claude",
-          "properties": {
-              "hoverTranslateClaude.apiKey": {
-                  "type": "string",
-                  "default": "",
-                  "description": "API key for Claude API"
-              }
-          }
+    "commands": [
+      {
+        "command": "commentTranslateClaude.openChat",
+        "title": "Open Claude Chat"
       }
+    ],
+    "configuration": {
+      "title": "Comment Translate & Chat Claude",
+      "properties": {
+        "commentTranslateClaude.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for Claude API"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
