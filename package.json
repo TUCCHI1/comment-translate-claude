@@ -1,51 +1,53 @@
 {
-  "name": "comment-translate-claude",
-  "displayName": "Comment Translate & Chat with Claude",
-  "description": "Translate comments and chat using Claude API",
-  "version": "0.0.2",
-  "engines": {
-    "vscode": "^1.93.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [],
-  "main": "./out/extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "commentTranslateClaude.openChat",
-        "title": "Open Claude Chat"
-      }
-    ],
-    "configuration": {
-      "title": "Comment Translate & Chat Claude",
-      "properties": {
-        "commentTranslateClaude.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "API key for Claude API"
-        }
-      }
-    }
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
-    "test": "vscode-test"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.93.0",
-    "@types/mocha": "^10.0.7",
-    "@types/node": "20.x",
-    "@typescript-eslint/eslint-plugin": "^8.3.0",
-    "@typescript-eslint/parser": "^8.3.0",
-    "eslint": "^9.9.1",
-    "typescript": "^5.5.4",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1"
-  }
+	"name": "comment-translate-claude",
+	"displayName": "Comment Translate & Chat with Claude",
+	"description": "Translate comments and chat using Claude API",
+	"version": "0.0.2",
+	"engines": {
+		"vscode": "^1.93.0"
+	},
+	"categories": ["Other"],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/TUCCHI1/comment-translate-claude.git"
+	},
+	"activationEvents": [],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "commentTranslateClaude.openChat",
+				"title": "Open Claude Chat"
+			}
+		],
+		"configuration": {
+			"title": "Comment Translate & Chat Claude",
+			"properties": {
+				"commentTranslateClaude.apiKey": {
+					"type": "string",
+					"default": "",
+					"description": "API key for Claude API"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./",
+		"pretest": "npm run compile && npm run lint",
+		"lint": "eslint src",
+		"test": "vscode-test"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.93.0",
+		"@types/mocha": "^10.0.7",
+		"@types/node": "20.x",
+		"@typescript-eslint/eslint-plugin": "^8.3.0",
+		"@typescript-eslint/parser": "^8.3.0",
+		"eslint": "^9.9.1",
+		"typescript": "^5.5.4",
+		"@vscode/test-cli": "^0.0.10",
+		"@vscode/test-electron": "^2.4.1"
+	}
 }
