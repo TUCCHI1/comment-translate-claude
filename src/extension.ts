@@ -3,101 +3,6 @@ import * as vscode from "vscode";
 let panel: vscode.WebviewPanel | undefined = undefined;
 let conversationHistory: { role: string; content: string }[] = [];
 
-export function activate(context: vscode.ExtensionContext) {
-	console.log("Comment Translate & Chat with Claude is now active!");
-
-	// コメント翻訳機能のためのHover Provider
-	const hoverProvider = vscode.languages.registerHoverProvider("*", {
-		provideHover: async (document, position, token) => {
-			const range = document.getWordRangeAtPosition(position);
-			if (!range) {
-				return;
-			}
-
-			const text = document.getText(range);
-			if (!isComment(document, position)) {
-				return;
-			}
-
-			try {
-				const translatedText = await translateUsingClaudeAPI(text);
-				return new vscode.Hover(new vscode.MarkdownString(translatedText));
-			} catch (error) {
-				console.error("Translation failed:", error);
-				return new vscode.Hover("Translation failed");
-			}
-		},
-	});
-
-	// チャット機能を開くコマンド
-	const chatDisposable = vscode.commands.registerCommand(
-		"commentTranslateClaude.openChat",
-		() => {
-			if (panel) {
-				panel.reveal(vscode.ViewColumn.One);
-			} else {
-				panel = vscode.window.createWebviewPanel(
-					"claudeChat",
-					"Claude Chat",
-					vscode.ViewColumn.One,
-					{
-						enableScripts: true,
-					},
-				);
-
-				panel.webview.html = getWebviewContent();
-
-				panel.webview.onDidReceiveMessage(
-					(message) => {
-						switch (message.command) {
-							case "sendMessage":
-								sendMessageToClaude(message.text)
-									.then((response) => {
-										panel?.webview.postMessage({
-											command: "receiveMessage",
-											text: response,
-										});
-									})
-									.catch((error) => {
-										vscode.window.showErrorMessage(`Error: ${error.message}`);
-										panel?.webview.postMessage({
-											command: "receiveMessage",
-											text: `Error: ${error.message}`,
-										});
-									});
-								return;
-						}
-					},
-					undefined,
-					context.subscriptions,
-				);
-
-				panel.onDidDispose(
-					() => {
-						panel = undefined;
-					},
-					null,
-					context.subscriptions,
-				);
-			}
-		},
-	);
-
-	context.subscriptions.push(hoverProvider, chatDisposable);
-}
-
-function isComment(
-	document: vscode.TextDocument,
-	position: vscode.Position,
-): boolean {
-	const line = document.lineAt(position.line).text;
-	return (
-		line.trim().startsWith("//") ||
-		line.trim().startsWith("/*") ||
-		line.trim().startsWith("*")
-	);
-}
-
 interface ClaudeAPIResponse {
 	id: string;
 	type: string;
@@ -112,37 +17,88 @@ interface ClaudeAPIResponse {
 	};
 }
 
-function isValidClaudeAPIResponse(data: unknown): data is ClaudeAPIResponse {
-	return (
-		typeof data === "object" &&
-		data !== null &&
-		"id" in data &&
-		"type" in data &&
-		"role" in data &&
-		"content" in data &&
-		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-		Array.isArray((data as any).content) &&
-		"model" in data &&
-		"stop_reason" in data &&
-		"stop_sequence" in data &&
-		"usage" in data &&
-		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-		typeof (data as any).usage === "object" &&
-		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-		"input_tokens" in (data as any).usage &&
-		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-		"output_tokens" in (data as any).usage
+export function activate(context: vscode.ExtensionContext) {
+	console.log("Comment Translate & Chat with Claude is now active!");
+
+	const hoverProvider = vscode.languages.registerHoverProvider("*", {
+		provideHover: async (document, position, token) => {
+			const hover = await vscode.commands.executeCommand<vscode.Hover[]>(
+				"vscode.executeHoverProvider",
+				document.uri,
+				position,
+			);
+
+			if (hover && hover.length > 0) {
+				const originalContent = hover[0].contents
+					.map((content) => {
+						if (content instanceof vscode.MarkdownString) {
+							return content.value;
+						}
+						return content.toString();
+					})
+					.join("\n");
+
+				console.log("Original hover content:", originalContent);
+
+				// ローディング表示を作成
+				const loadingMarkdown = new vscode.MarkdownString("翻訳中...");
+				loadingMarkdown.isTrusted = true;
+
+				// タイムアウト処理
+				const timeoutPromise = new Promise<vscode.Hover>((_, reject) => {
+					setTimeout(
+						() => reject(new Error("翻訳がタイムアウトしました")),
+						10000,
+					);
+				});
+
+				try {
+					const translationPromise = translateUsingClaudeAPI(
+						originalContent,
+					).then((translatedText) => {
+						console.log("Translated hover content:", translatedText);
+						const markdown = new vscode.MarkdownString(translatedText);
+						markdown.isTrusted = true;
+						markdown.supportHtml = true;
+						markdown.appendMarkdown("\n\n---\n\n");
+						markdown.appendMarkdown(
+							"[この内容について質問する](command:commentTranslateClaude.askQuestion)",
+						);
+						return new vscode.Hover(markdown);
+					});
+
+					// タイムアウトとの競合
+					return await Promise.race([translationPromise, timeoutPromise]);
+				} catch (error) {
+					console.error("Translation failed:", error);
+					const errorMessage = (error as Error).message;
+					return new vscode.Hover(`翻訳に失敗しました: ${errorMessage}`);
+				}
+			}
+		},
+	});
+
+	const chatDisposable = vscode.commands.registerCommand(
+		"commentTranslateClaude.openChat",
+		() => openChatWithContext(),
 	);
+
+	context.subscriptions.push(hoverProvider, chatDisposable);
 }
 
-async function translateUsingClaudeAPI(text: string): Promise<string> {
+async function translateUsingClaudeAPI(
+	originalContent: string,
+): Promise<string> {
 	const apiKey = getApiKey();
 
 	if (!apiKey) {
+		console.error("API key is missing");
 		throw new Error(
 			"Claude API key is not set. Please set it in the extension settings.",
 		);
 	}
+
+	console.log("Translating:", originalContent);
 
 	try {
 		const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -154,29 +110,132 @@ async function translateUsingClaudeAPI(text: string): Promise<string> {
 			},
 			body: JSON.stringify({
 				model: "claude-3-5-sonnet-20240620",
-				max_tokens: 8192,
+				max_tokens: 1000,
 				messages: [
 					{
 						role: "user",
-						content: `Translate the following text to Japanese: ${text}`,
+						content: `Translate the following VS Code hover text to Japanese. Keep code and technical terms unchanged:
+
+                        ${originalContent}
+
+                        Japanese translation:`,
 					},
 				],
 			}),
 		});
 
 		if (!response.ok) {
+			const errorText = await response.text();
+			console.error(
+				`API request failed with status ${response.status}:`,
+				errorText,
+			);
 			throw new Error(`API request failed with status ${response.status}`);
 		}
 
 		const rawData: unknown = await response.json();
+		console.log("Raw API response:", rawData);
+
 		if (!isValidClaudeAPIResponse(rawData)) {
+			console.error("Invalid response data:", rawData);
 			throw new Error("Invalid response data from Claude API");
 		}
 
-		return rawData.content[0].text;
+		const translatedText = rawData.content[0].text;
+		console.log("Raw translated text from API:", translatedText);
+
+		const processedText = postProcessTranslation(translatedText);
+		console.log("Processed translated text:", processedText);
+
+		return processedText;
 	} catch (error) {
 		console.error("Error calling Claude API:", error);
-		throw new Error("Failed to translate using Claude API");
+		throw new Error(
+			`Failed to translate using Claude API: ${(error as Error).message}`,
+		);
+	}
+}
+
+function postProcessTranslation(translation: string): string {
+	console.log("Original translation before processing:", translation);
+
+	// コードブロックを保護
+	const codeBlocks: string[] = [];
+	translation = translation.replace(/```[\s\S]*?```/g, (match) => {
+		codeBlocks.push(match);
+		return `[[CODE_BLOCK_${codeBlocks.length - 1}]]`;
+	});
+
+	// 行ごとに処理
+	const lines = translation.split("\n").map((line) => {
+		// コロンの後のスペースを削除
+		line = line.replace(/:\s+/g, ":");
+		// 括弧内の英語を保護
+		line = line.replace(/\(([^)]+)\)/g, (_, content) => {
+			return content.match(/^[a-zA-Z\s]+$/) ? `(${content})` : `（${content}）`;
+		});
+		return line;
+	});
+
+	// コードブロックを復元
+	translation = lines
+		.join("\n")
+		.replace(
+			/\[\[CODE_BLOCK_(\d+)]]/g,
+			(_, index) => codeBlocks[Number.parseInt(index)],
+		);
+
+	console.log("Processed translation:", translation);
+	return translation;
+}
+
+function openChatWithContext(context = "") {
+	if (panel) {
+		panel.reveal(vscode.ViewColumn.One);
+	} else {
+		panel = vscode.window.createWebviewPanel(
+			"claudeChat",
+			"Claude Chat",
+			vscode.ViewColumn.One,
+			{
+				enableScripts: true,
+			},
+		);
+
+		panel.webview.html = getWebviewContent();
+
+		panel.webview.onDidReceiveMessage(async (message) => {
+			switch (message.command) {
+				case "sendMessage":
+					try {
+						const response = await sendMessageToClaude(message.text);
+						panel?.webview.postMessage({
+							command: "receiveMessage",
+							text: response,
+						});
+					} catch (error) {
+						vscode.window.showErrorMessage(
+							`Error: ${(error as Error).message}`,
+						);
+						panel?.webview.postMessage({
+							command: "receiveMessage",
+							text: `Error: ${(error as Error).message}`,
+						});
+					}
+					break;
+			}
+		});
+
+		panel.onDidDispose(() => {
+			panel = undefined;
+		}, null);
+	}
+
+	if (context) {
+		panel.webview.postMessage({
+			command: "setContext",
+			text: context,
+		});
 	}
 }
 
@@ -200,7 +259,7 @@ async function sendMessageToClaude(text: string): Promise<string> {
 				"anthropic-version": "2023-06-01",
 			},
 			body: JSON.stringify({
-				model: "claude-3-sonnet-20240229",
+				model: "claude-3-opus-20240229",
 				max_tokens: 1000,
 				messages: conversationHistory,
 			}),
@@ -284,6 +343,9 @@ function getWebviewContent() {
                     case 'receiveMessage':
                         appendMessage('Claude: ' + message.text);
                         break;
+                    case 'setContext':
+                        appendMessage('Context: ' + message.text);
+                        break;
                 }
             });
 
@@ -297,5 +359,23 @@ function getWebviewContent() {
     </html>`;
 }
 
+function isValidClaudeAPIResponse(data: unknown): data is ClaudeAPIResponse {
+	return (
+		typeof data === "object" &&
+		data !== null &&
+		"id" in data &&
+		"type" in data &&
+		"role" in data &&
+		"content" in data &&
+		Array.isArray((data as any).content) &&
+		"model" in data &&
+		"stop_reason" in data &&
+		"stop_sequence" in data &&
+		"usage" in data &&
+		typeof (data as any).usage === "object" &&
+		"input_tokens" in (data as any).usage &&
+		"output_tokens" in (data as any).usage
+	);
+}
+
 export function deactivate() {}
-export { isComment, translateUsingClaudeAPI, sendMessageToClaude };
